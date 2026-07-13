@@ -26,14 +26,14 @@ async def get_client() -> AsyncMongoClient:
         # establish client
         _client = AsyncMongoClient(MONGO_URI)
     
-    # check for connection failure
-    try:
+        # check for connection failure
+        try:
 
-        await _client.admin.command("ping")
+            await _client.admin.command("ping")
 
-    except ConnectionFailure:
+        except ConnectionFailure:
 
-        print("[!] MongoDB server unavailable.")
+            print("[!] MongoDB server unavailable.")
 
     return _client
 
