@@ -3,7 +3,7 @@ from types import SimpleNamespace  # fake object
 from unittest.mock import ANY, AsyncMock, patch  # async mock, patching, wildcard matcher
 
 # imports
-from handlers.menu import add_to_cart, clear_cart, view_cart
+from handlers.menu import add_to_cart, clear_cart, view_cart, view_orders
 import handlers.menu as menu_handlers
 from handlers.router import router
 from handlers.start import start
@@ -28,7 +28,7 @@ from services.cart_service import (
 import services.menu_service as menu_service
 
 
-# Local fixture data so tests are independent of services.fake_db.
+# Local data so tests independent of fake_db.
 VENDORS = [
 	{
 		"id": 1,
@@ -50,18 +50,18 @@ VENDORS = [
 ]
 
 
-# fake Telegram context
+# fake Tele context
 def make_context(cart=None):
 	# context.user_data is frequently used by handlers/services
 	return SimpleNamespace(user_data={} if cart is None else {"cart": cart})
 
 
-# helper for verifying button texts for inline keyboards
+# helper for verifying button texts for inline keyboards / break down inline keyboards
 def inline_texts(markup):
 	return [[button.text for button in row] for row in markup.inline_keyboard]
 
 
-# helper for verifying button texts for reply keyboards
+# helper for verifying button texts for reply keyboards / break down reply keyboards
 def reply_texts(markup):
 	return [[button.text for button in row] for row in markup.keyboard]
 
@@ -471,14 +471,87 @@ class AdditionalHandlerCoverageTests(unittest.IsolatedAsyncioTestCase):
 	# test that place_order clears cart and sends order confirmation message
 	async def test_place_order_clears_cart_and_confirms(self):
 		query = SimpleNamespace(answer=AsyncMock(), edit_message_text=AsyncMock())
-		update = SimpleNamespace(callback_query=query)
+		update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=42))
 		context = make_context([{"food": VENDORS[1]["foods"][0], "quantity": 2}])
 
-		await menu_handlers.place_order(update, context)
+		with patch("handlers.menu.create_order") as mocked_create_order:
+			await menu_handlers.place_order(update, context)
 
+		mocked_create_order.assert_called_once_with(42, [{"food": VENDORS[1]["foods"][0], "quantity": 2}])
 		query.answer.assert_awaited_once_with()
 		self.assertEqual(context.user_data["cart"], [])
 		query.edit_message_text.assert_awaited_once_with("Your order has been placed")
+
+	# test that place_order returns empty-cart message when there is nothing to place
+	async def test_place_order_handles_empty_cart(self):
+		query = SimpleNamespace(answer=AsyncMock(), edit_message_text=AsyncMock())
+		update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=42))
+		context = make_context()
+
+		with patch("handlers.menu.create_order") as mocked_create_order:
+			await menu_handlers.place_order(update, context)
+
+		# nothing to place, create order should NOT be called.
+		mocked_create_order.assert_not_called()
+		query.answer.assert_awaited_once_with()
+		query.edit_message_text.assert_awaited_once_with("Your cart is empty")
+
+	# test that MyOrders router path calls the view_orders handler
+	async def test_router_routes_my_orders_message(self):
+		update = SimpleNamespace(
+			message=SimpleNamespace(text="My Orders", reply_text=AsyncMock()),
+			effective_user=SimpleNamespace(id=42),
+		)
+		context = SimpleNamespace()
+
+		with patch("handlers.router.view_orders", new=AsyncMock()) as mocked_view_orders:
+			await router(update, context)
+
+		mocked_view_orders.assert_awaited_once_with(update, context);
+
+	# test that view_orders returns empty message when user has no orders
+	async def test_view_orders_handles_no_order(self):
+		reply_text = AsyncMock()
+		update = SimpleNamespace(message=SimpleNamespace(reply_text=reply_text), effective_user=SimpleNamespace(id=42))
+
+		with patch("handlers.menu.get_orders_by_user", return_value=[]) as mocked_get_orders:
+			await view_orders(update, SimpleNamespace())
+
+		mocked_get_orders.assert_called_once_with(42)
+		reply_text.assert_awaited_once_with("You have no orders yet.");
+
+	# test that view_orders formats a short summary list for recent user orders
+	async def test_view_orders_formats_recent_orders(self):
+		reply_text = AsyncMock()
+		update = SimpleNamespace(message=SimpleNamespace(reply_text=reply_text), effective_user=SimpleNamespace(id=42))
+		orders = [
+			{
+				"created_at": "2026-07-26T10:00:00",
+				"items": [{"quantity": 2}, {"quantity": 1}],
+				"total": 19.0,
+			},
+			{
+				"created_at": "2026-07-25T19:30:00",
+				"items": [{"quantity": 1}],
+				"total": 5.5,
+			},
+		]
+
+		with patch("handlers.menu.get_orders_by_user", return_value=orders):
+			await view_orders(update, SimpleNamespace())
+
+		reply_text.assert_awaited_once();
+		text = reply_text.await_args.args[0];
+		# .assertIn() is just checking that the expected text exists somewhere in the reply text.
+		# i.e. : assert that Recent orders: is somewhere in text
+		self.assertIn("Recent orders:", text);
+		# there's no pointer to the exact line so it doesn't really matter the order.
+		# I just put the item counts first even though it's 3 items - 19, 1 item - 5.5
+		# so it's neater lol
+		self.assertIn("3 item(s)", text);
+		self.assertIn("1 item(s)", text);
+		self.assertIn("$19.0", text);
+		self.assertIn("$5.5", text);
 
 
 if __name__ == "__main__":

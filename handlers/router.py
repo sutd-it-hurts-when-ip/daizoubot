@@ -1,6 +1,6 @@
 from telegram import Update
 from telegram.ext import ContextTypes
-from handlers.menu import browse_menu
+from handlers.menu import browse_menu, view_orders
 
 async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -11,7 +11,7 @@ async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "Available Bounties":
         await update.message.reply_text("Available Bounties coming soon.")
     elif text == "My Orders":
-        await update.message.reply_text("Orders coming soon.")
+        await view_orders(update, context)
     elif text == "My Profile":
         await update.message.reply_text("Profile coming soon.")
 

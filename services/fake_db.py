@@ -2,7 +2,7 @@ vendors = [
 
     {
         "id": 1,
-        "name": "Western",
+        "name": "Western (Fake DB)",
 
         "foods": [
 
@@ -32,7 +32,7 @@ vendors = [
 
     {
         "id": 2,
-        "name": "Ban Mian",
+        "name": "Ban Mian (Fake DB)",
 
         "foods": [
 
