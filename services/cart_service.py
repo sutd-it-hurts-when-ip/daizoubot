@@ -14,10 +14,10 @@ def remove_from_cart(context, food):
     cart = get_cart(context);
     
     for i in cart:
-        if i['food']['id'] == food_id:
+        if i['food']['id'] == food['id']:
             i['quantity'] -= 1;
             if i['quantity'] <= 0:
-                cart.remove(item);
+                cart.remove(i);
             return;
             
 def clear_cart(context):
@@ -42,7 +42,7 @@ def format_cart(context):
     for i in cart:
         subtotal = i['food']['price'] * i['quantity'];
         text += i['food']['name'] + "\n" + str(i['food']['price']) + " * " + str(i['quantity']) + " = $" + str(subtotal) + "\n\n"
-        text += "Items: " + str(cart_item_count(context));
-        text += "\n"
-        text += "Total = $" + str(cart_total(context));
-        return text;
+    text += "Items: " + str(cart_item_count(context));
+    text += "\n"
+    text += "Total = $" + str(cart_total(context));
+    return text;
