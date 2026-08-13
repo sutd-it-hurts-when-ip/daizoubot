@@ -3,12 +3,14 @@ from telegram import ReplyKeyboardMarkup
 def main_menu(user, is_admin=False):
     
     # maybe implement user-specific stuff later
+
+    # ずっと真夜中でいいのに。
     
     keyboard = [
     ["Browse Menu"],
     ["Available Bounties"],
     ["My Orders"],
-    ["My Profile"]
+    ["Accepted Bounties"]
     ]
     
     if (is_admin):

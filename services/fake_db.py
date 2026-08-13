@@ -32,7 +32,7 @@ vendors = [
 
     {
         "id": 2,
-        "name": "Ban Mian (Fake DB)",
+        "name": "Ban Mian (Fake)",
 
         "foods": [
 
@@ -53,4 +53,4 @@ vendors = [
         ]
     }
 
-]
+];

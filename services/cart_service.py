@@ -1,8 +1,8 @@
 def get_cart(context):
-    return context.user_data.setdefault("cart", [])
+    return context.user_data.setdefault("cart", []);
     
 def add_to_cart(context, food):
-    cart = get_cart(context)
+    cart = get_cart(context);
     
     for i in cart:
         if i['food']['id'] == food['id']: 
@@ -32,7 +32,7 @@ def cart_total(context):
 def cart_item_count(context):
     count = 0;
     for i in get_cart(context):
-        count += i['quantity']
+        count += i['quantity'];
     return count;
     
 def format_cart(context):
@@ -41,7 +41,7 @@ def format_cart(context):
     text = "Your cart contains " + str(cart_item_count(context)) + " items.\n\n";
     for i in cart:
         subtotal = i['food']['price'] * i['quantity'];
-        text += i['food']['name'] + "\n" + str(i['food']['price']) + " * " + str(i['quantity']) + " = $" + str(subtotal) + "\n\n"
+        text += i['food']['name'] + "\n" + str(i['food']['price']) + " * " + str(i['quantity']) + " = $" + str(subtotal) + "\n\n";
     text += "Items: " + str(cart_item_count(context));
     text += "\n"
     text += "Total = $" + str(cart_total(context));

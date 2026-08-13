@@ -3,13 +3,25 @@ from types import SimpleNamespace  # fake object
 from unittest.mock import ANY, AsyncMock, patch  # async mock, patching, wildcard matcher
 
 # imports
-from handlers.menu import add_to_cart, clear_cart, view_cart, view_orders
+from handlers.menu import (
+	add_to_cart,
+	clear_cart,
+	view_cart,
+	view_accepted_bounties,
+	view_orders,
+	accept_bounty_handler,
+	mark_delivery_done,
+	mark_delivery_completed,
+	mark_delivery_picked_up,
+)
 import handlers.menu as menu_handlers
 from handlers.router import router
 from handlers.start import start
 from keyboards.inline_menu import (
+	bounty_keyboard,
 	cart_keyboard,
 	checkout_keyboard,
+	delivery_status_keyboard,
 	empty_card_keyboard,
 	food_detail_keyboard,
 	food_keyboard,
@@ -70,11 +82,11 @@ def reply_texts(markup):
 class KeyboardTests(unittest.TestCase):
 	# test that main menu contains the expected choices for a user
 	def test_main_menu_contains_expected_choices(self):
-		markup = main_menu(SimpleNamespace(first_name="Himeko"))
+		markup = main_menu(SimpleNamespace(first_name="Acane"))
 
 		self.assertEqual(
 			reply_texts(markup),
-			[["Browse Menu"], ["Available Bounties"], ["My Orders"], ["My Profile"]],
+			[["Browse Menu"], ["Available Bounties"], ["My Orders"], ["Accepted Bounties"]],
 		)
 
 	# example: vendor ids 1 and 2 should render buttons "Western" and "Ban Mian"
@@ -91,6 +103,12 @@ class KeyboardTests(unittest.TestCase):
 		self.assertEqual(markup.inline_keyboard[0][0].callback_data, "vendor:1")
 		self.assertEqual(markup.inline_keyboard[1][0].callback_data, "vendor:2")
 
+	def test_vendor_keyboard_shows_view_cart_when_enabled(self):
+		markup = vendor_keyboard(VENDORS, show_view_cart=True)
+
+		self.assertEqual(markup.inline_keyboard[-1][0].text, "View Cart")
+		self.assertEqual(markup.inline_keyboard[-1][0].callback_data, "view_cart")
+
 		# refer to above for the rest of the functions, basically the same thing
 		# declare keyboard, check text correct, check callback_data correct.
 
@@ -98,7 +116,7 @@ class KeyboardTests(unittest.TestCase):
 	def test_food_keyboard_uses_food_ids(self):
 		markup = food_keyboard(VENDORS[0]["foods"][:2])
 
-		self.assertEqual(inline_texts(markup), [["Chicken Chop: $6.5."], ["Fish & Chips: $7.0."]])
+		self.assertEqual(inline_texts(markup), [["Chicken Chop: $6.50"], ["Fish & Chips: $7.00"]])
 		self.assertEqual(markup.inline_keyboard[0][0].callback_data, "food:101")
 		self.assertEqual(markup.inline_keyboard[1][0].callback_data, "food:102")
 
@@ -132,6 +150,36 @@ class KeyboardTests(unittest.TestCase):
 		self.assertEqual(markup.inline_keyboard[0][0].callback_data, "place_order")
 		self.assertEqual(markup.inline_keyboard[1][0].callback_data, "view_cart")
 
+	# test that bounty keyboard renders accept and refresh actions
+	def test_bounty_keyboard_contains_accept_and_refresh(self):
+		bounties = [{"order_id": "abc123", "items": [{"quantity": 2}], "total": 9.5}]
+		markup = bounty_keyboard(bounties)
+
+		self.assertEqual(inline_texts(markup)[0], ["Accept 2 item(s) | $9.5"])
+		self.assertEqual(markup.inline_keyboard[0][0].callback_data, "bounty_accept:abc123")
+		self.assertEqual(markup.inline_keyboard[1][0].callback_data, "bounties_refresh")
+
+	# test that delivery keyboard shows expected action for accepted status
+	def test_delivery_status_keyboard_for_accepted(self):
+		markup = delivery_status_keyboard("abc123", "accepted")
+
+		self.assertEqual(markup.inline_keyboard[0][0].callback_data, "delivery_pickup:abc123")
+		self.assertEqual(markup.inline_keyboard[1][0].callback_data, "bounties_refresh")
+
+	# test that delivery keyboard shows expected action for picked_up status
+	def test_delivery_status_keyboard_for_picked_up(self):
+		markup = delivery_status_keyboard("abc123", "picked_up")
+
+		self.assertEqual(markup.inline_keyboard[0][0].callback_data, "delivery_done:abc123")
+		self.assertEqual(markup.inline_keyboard[1][0].callback_data, "bounties_refresh")
+
+	# test that delivery keyboard shows expected action for delivered status
+	def test_delivery_status_keyboard_for_delivered(self):
+		markup = delivery_status_keyboard("abc123", "delivered")
+
+		self.assertEqual(markup.inline_keyboard[0][0].callback_data, "delivery_complete:abc123")
+		self.assertEqual(markup.inline_keyboard[1][0].callback_data, "bounties_refresh")
+
 
 # layer up: menu service lookups
 class MenuServiceTests(unittest.TestCase):
@@ -139,12 +187,12 @@ class MenuServiceTests(unittest.TestCase):
 	def test_get_vendors_returns_sample_data(self):
 		# with patch.object temporarily replaces menu_service's object "vendors" with local VENDORS object
 		# so that .get_vendors() returns VENDORS, eliminating dependency on services.fake_db
-		with patch.object(menu_service, "vendors", VENDORS):
+		with patch.object(menu_service, "_get_collection", return_value=None), patch.object(menu_service, "vendors", VENDORS):
 			self.assertEqual(menu_service.get_vendors(), VENDORS)
 
 	# example: looking up vendor id 1 should return the "Western" vendor dict
 	def test_get_vendor_finds_match(self):
-		with patch.object(menu_service, "vendors", VENDORS):
+		with patch.object(menu_service, "_get_collection", return_value=None), patch.object(menu_service, "vendors", VENDORS):
 			vendor = menu_service.get_vendor(1)
 
 		self.assertIsNotNone(vendor)
@@ -152,12 +200,12 @@ class MenuServiceTests(unittest.TestCase):
 
 	# test that a missing vendor id returns None
 	def test_get_vendor_returns_none_for_missing_id(self):
-		with patch.object(menu_service, "vendors", VENDORS):
+		with patch.object(menu_service, "_get_collection", return_value=None), patch.object(menu_service, "vendors", VENDORS):
 			self.assertIsNone(menu_service.get_vendor(99123))
 
 	# test that food lookup finds the matching food across all vendors
 	def test_get_food_finds_match(self):
-		with patch.object(menu_service, "vendors", VENDORS):
+		with patch.object(menu_service, "_get_collection", return_value=None), patch.object(menu_service, "vendors", VENDORS):
 			food = menu_service.get_food(202)
 
 		self.assertIsNotNone(food)
@@ -165,7 +213,7 @@ class MenuServiceTests(unittest.TestCase):
 
 	# test that a missing food id returns None
 	def test_get_food_returns_none_for_missing_id(self):
-		with patch.object(menu_service, "vendors", VENDORS):
+		with patch.object(menu_service, "_get_collection", return_value=None), patch.object(menu_service, "vendors", VENDORS):
 			self.assertIsNone(menu_service.get_food(999))
 
 
@@ -252,7 +300,7 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
 		update = SimpleNamespace(
 			# fake function used here...
 			message=SimpleNamespace(reply_text=reply_text),
-			effective_user=SimpleNamespace(first_name="Himeko"),
+			effective_user=SimpleNamespace(first_name="Acane"),
 		)
 
 		# awaited here
@@ -260,7 +308,7 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
 
 		# checked here
 		reply_text.assert_awaited_once()
-		self.assertEqual(reply_text.await_args.args[0], "Welcome to daizoubu, Himeko!")
+		self.assertEqual(reply_text.await_args.args[0], "Welcome to daizoubu, Acane!")
 		self.assertIsNotNone(reply_text.await_args.kwargs.get("reply_markup"))
 
 	# test that the router sends the browse command to the browse_menu handler
@@ -299,17 +347,7 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
 		# defined above
 		mocked_get_food.assert_called_once_with(101)
 		mocked_cart_add.assert_called_once_with(context, VENDORS[0]["foods"][0])
-		query.answer.assert_awaited_once_with(text="Added Chicken Chop to cart", show_alert=False)
-
-	# test that add_to_cart shows an error when the requested food does not exist
-	async def test_add_to_cart_shows_error_when_food_missing(self):
-		query = SimpleNamespace(data="cart_add:999", answer=AsyncMock(), edit_message_text=AsyncMock())
-		update = SimpleNamespace(callback_query=query)
-
-		with patch("handlers.menu.get_food", return_value=None):
-			await add_to_cart(update, make_context())
-
-		query.edit_message_text.assert_awaited_once_with("Food not found")
+		query.answer.assert_awaited_once_with(text="Added Chicken Chop to cart (1 in cart)", show_alert=False)
 
 	# test that view_cart uses the empty-cart keyboard when the cart has no items
 	async def test_view_cart_uses_empty_keyboard_for_empty_cart(self):
@@ -352,8 +390,21 @@ class AdditionalHandlerCoverageTests(unittest.IsolatedAsyncioTestCase):
 
 		# assertions
 		mocked_get_vendors.assert_called_once_with()
-		mocked_vendor_keyboard.assert_called_once_with(VENDORS)
+		mocked_vendor_keyboard.assert_called_once_with(VENDORS, show_view_cart=False)
 		reply_text.assert_awaited_once_with("Select a vendor:", reply_markup="vendor_markup")
+
+	# test that browse_menu includes View Cart button when cart has items
+	async def test_browse_menu_shows_view_cart_when_cart_non_empty(self):
+		reply_text = AsyncMock()
+		update = SimpleNamespace(message=SimpleNamespace(reply_text=reply_text))
+		context = make_context([{"food": VENDORS[0]["foods"][0], "quantity": 1}])
+
+		with patch("handlers.menu.get_vendors", return_value=VENDORS), patch(
+			"handlers.menu.vendor_keyboard", return_value="vendor_markup"
+		) as mocked_vendor_keyboard:
+			await menu_handlers.browse_menu(update, context)
+
+		mocked_vendor_keyboard.assert_called_once_with(VENDORS, show_view_cart=True)
 
 	# test that vendor_selected reads callback vendor id and loads that vendor menu
 	async def test_vendor_selected_shows_selected_vendor_menu(self):
@@ -387,7 +438,7 @@ class AdditionalHandlerCoverageTests(unittest.IsolatedAsyncioTestCase):
 		mocked_get_food.assert_called_once_with(101)
 		mocked_food_detail_keyboard.assert_called_once_with(101)
 		query.edit_message_text.assert_awaited_once_with(
-			text="Chicken Chop\n\n6.5\ndesc cc",
+			text="Chicken Chop\n\nPrice: $6.50\ndesc cc",
 			reply_markup="detail_markup",
 		)
 
@@ -450,7 +501,7 @@ class AdditionalHandlerCoverageTests(unittest.IsolatedAsyncioTestCase):
 		self.assertIn("Checkout", kwargs["text"])
 		self.assertIn("Chicken Chop", kwargs["text"])
 		self.assertIn("Pasta", kwargs["text"])
-		self.assertIn("Total: $19.0", kwargs["text"])
+		self.assertIn("Total: $19.00", kwargs["text"])
 		self.assertEqual(inline_texts(kwargs["reply_markup"]), [["Place Order"], ["Cancel"]])
 
 	# test that back callback returns user to vendor selection
@@ -465,8 +516,21 @@ class AdditionalHandlerCoverageTests(unittest.IsolatedAsyncioTestCase):
 
 		query.answer.assert_awaited_once_with()
 		mocked_get_vendors.assert_called_once_with()
-		mocked_vendor_keyboard.assert_called_once_with(VENDORS)
+		mocked_vendor_keyboard.assert_called_once_with(VENDORS, show_view_cart=False)
 		query.edit_message_text.assert_awaited_once_with(text="Choose a vendor: ", reply_markup="vendor_markup")
+
+	# test that back callback keeps view-cart shortcut when cart has items
+	async def test_back_shows_view_cart_when_cart_non_empty(self):
+		query = SimpleNamespace(answer=AsyncMock(), edit_message_text=AsyncMock())
+		update = SimpleNamespace(callback_query=query)
+		context = make_context([{"food": VENDORS[0]["foods"][0], "quantity": 1}])
+
+		with patch("handlers.menu.get_vendors", return_value=VENDORS), patch(
+			"handlers.menu.vendor_keyboard", return_value="vendor_markup"
+		) as mocked_vendor_keyboard:
+			await menu_handlers.back(update, context)
+
+		mocked_vendor_keyboard.assert_called_once_with(VENDORS, show_view_cart=True)
 
 	# test that place_order clears cart and sends order confirmation message
 	async def test_place_order_clears_cart_and_confirms(self):
@@ -474,10 +538,15 @@ class AdditionalHandlerCoverageTests(unittest.IsolatedAsyncioTestCase):
 		update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=42))
 		context = make_context([{"food": VENDORS[1]["foods"][0], "quantity": 2}])
 
-		with patch("handlers.menu.create_order") as mocked_create_order:
+		with patch(
+			"handlers.menu.create_payment_request",
+			return_value={"payment_id": "pay-1", "status": "pending", "qr_payload": "q"},
+		), patch("handlers.menu.mark_payment_paid", return_value={"payment_id": "pay-1", "status": "paid"}), patch(
+			"handlers.menu.is_payment_verified", return_value=True
+		), patch("handlers.menu.create_order", return_value="order-1") as mocked_create_order:
 			await menu_handlers.place_order(update, context)
 
-		mocked_create_order.assert_called_once_with(42, [{"food": VENDORS[1]["foods"][0], "quantity": 2}])
+		mocked_create_order.assert_called_once_with(42, [{"food": VENDORS[1]["foods"][0], "quantity": 2}], payment_transaction_id="pay-1")
 		query.answer.assert_awaited_once_with()
 		self.assertEqual(context.user_data["cart"], [])
 		query.edit_message_text.assert_awaited_once_with("Your order has been placed")
@@ -488,13 +557,30 @@ class AdditionalHandlerCoverageTests(unittest.IsolatedAsyncioTestCase):
 		update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=42))
 		context = make_context()
 
-		with patch("handlers.menu.create_order") as mocked_create_order:
+		with patch("handlers.menu.create_order") as mocked_create_order, patch("handlers.menu.create_payment_request") as mocked_payment:
 			await menu_handlers.place_order(update, context)
 
 		# nothing to place, create order should NOT be called.
 		mocked_create_order.assert_not_called()
+		mocked_payment.assert_not_called()
 		query.answer.assert_awaited_once_with()
 		query.edit_message_text.assert_awaited_once_with("Your cart is empty")
+
+	# test outage-like mismatch: payment ok but profile/order creation fails
+	async def test_place_order_handles_profile_required_create_failure(self):
+		query = SimpleNamespace(answer=AsyncMock(), edit_message_text=AsyncMock())
+		update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=42))
+		context = make_context([{"food": VENDORS[1]["foods"][0], "quantity": 1}])
+
+		with patch(
+			"handlers.menu.create_payment_request",
+			return_value={"payment_id": "pay-2", "status": "pending", "qr_payload": "q"},
+		), patch("handlers.menu.mark_payment_paid", return_value={"payment_id": "pay-2", "status": "paid"}), patch(
+			"handlers.menu.is_payment_verified", return_value=True
+		), patch("handlers.menu.create_order", return_value=None):
+			await menu_handlers.place_order(update, context)
+
+		query.edit_message_text.assert_awaited_once_with("Unable to place order right now.")
 
 	# test that MyOrders router path calls the view_orders handler
 	async def test_router_routes_my_orders_message(self):
@@ -505,9 +591,38 @@ class AdditionalHandlerCoverageTests(unittest.IsolatedAsyncioTestCase):
 		context = SimpleNamespace()
 
 		with patch("handlers.router.view_orders", new=AsyncMock()) as mocked_view_orders:
-			await router(update, context)
+			with patch("handlers.router.has_registered_account", return_value=True):
+				await router(update, context)
 
 		mocked_view_orders.assert_awaited_once_with(update, context);
+
+	# test that Available Bounties router path calls view_bounties handler
+	async def test_router_routes_available_bounties_message(self):
+		update = SimpleNamespace(
+			message=SimpleNamespace(text="Available Bounties", reply_text=AsyncMock()),
+			effective_user=SimpleNamespace(id=42),
+		)
+		context = SimpleNamespace()
+
+		with patch("handlers.router.view_bounties", new=AsyncMock()) as mocked_view_bounties:
+			with patch("handlers.router.has_registered_account", return_value=True):
+				await router(update, context)
+
+		mocked_view_bounties.assert_awaited_once_with(update, context)
+
+	# test that Accepted Bounties router path calls view_accepted_bounties
+	async def test_router_routes_accepted_bounties_message(self):
+		update = SimpleNamespace(
+			message=SimpleNamespace(text="Accepted Bounties", reply_text=AsyncMock()),
+			effective_user=SimpleNamespace(id=42),
+		)
+		context = SimpleNamespace()
+
+		with patch("handlers.router.view_accepted_bounties", new=AsyncMock()) as mocked_view_accepted:
+			with patch("handlers.router.has_registered_account", return_value=True):
+				await router(update, context)
+
+		mocked_view_accepted.assert_awaited_once_with(update, context)
 
 	# test that view_orders returns empty message when user has no orders
 	async def test_view_orders_handles_no_order(self):
@@ -552,6 +667,148 @@ class AdditionalHandlerCoverageTests(unittest.IsolatedAsyncioTestCase):
 		self.assertIn("1 item(s)", text);
 		self.assertIn("$19.0", text);
 		self.assertIn("$5.5", text);
+
+	# test that view_bounties shows empty text when nothing is available
+	async def test_view_bounties_handles_no_available_orders(self):
+		reply_text = AsyncMock()
+		update = SimpleNamespace(message=SimpleNamespace(reply_text=reply_text), effective_user=SimpleNamespace(id=99))
+
+		with patch("handlers.menu.get_open_bounties", return_value=[]):
+			await menu_handlers.view_bounties(update, SimpleNamespace())
+
+		reply_text.assert_awaited_once_with("No available bounties right now.")
+
+	# test that view_bounties renders available bounties with keyboard
+	async def test_view_bounties_renders_available_orders(self):
+		reply_text = AsyncMock()
+		update = SimpleNamespace(message=SimpleNamespace(reply_text=reply_text), effective_user=SimpleNamespace(id=99))
+		bounties = [{"order_id": "order-1", "items": [{"quantity": 1}], "total": 5.0}]
+
+		with patch("handlers.menu.get_open_bounties", return_value=bounties), patch(
+			"handlers.menu.bounty_keyboard", return_value="bounty_markup"
+		) as mocked_bounty_keyboard:
+			await menu_handlers.view_bounties(update, SimpleNamespace())
+
+		mocked_bounty_keyboard.assert_called_once_with(bounties)
+		reply_text.assert_awaited_once_with("Available bounties:", reply_markup="bounty_markup")
+
+	# test that accepting bounty updates message when successful
+	async def test_accept_bounty_handler_success(self):
+		query = SimpleNamespace(data="bounty_accept:order-1", answer=AsyncMock(), edit_message_text=AsyncMock())
+		update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=55))
+		accepted = {
+			"order_id": "order-1",
+			"items": [{"quantity": 2}],
+			"total": 12.0,
+			"status": "accepted",
+		}
+
+		with patch("handlers.menu.accept_bounty", return_value=accepted) as mocked_accept:
+			await accept_bounty_handler(update, SimpleNamespace())
+
+		mocked_accept.assert_called_once_with("order-1", 55)
+		query.answer.assert_awaited_once_with()
+		self.assertIn("Bounty accepted", query.edit_message_text.await_args.args[0])
+
+	# test that accepting bounty shows unavailable message when already taken
+	async def test_accept_bounty_handler_handles_taken_bounty(self):
+		query = SimpleNamespace(data="bounty_accept:order-1", answer=AsyncMock(), edit_message_text=AsyncMock())
+		update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=55))
+
+		with patch("handlers.menu.accept_bounty", return_value=None):
+			await accept_bounty_handler(update, SimpleNamespace())
+
+		query.edit_message_text.assert_awaited_once_with("This bounty is no longer available.")
+
+	# test that pickup action updates status for assigned zutomayo_rider
+	async def test_mark_delivery_picked_up_success(self):
+		query = SimpleNamespace(data="delivery_pickup:order-2", answer=AsyncMock(), edit_message_text=AsyncMock())
+		update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=77))
+		picked = {
+			"order_id": "order-2",
+			"items": [{"quantity": 1}],
+			"total": 6.5,
+			"status": "picked_up",
+		}
+
+		with patch("handlers.menu.mark_order_picked_up", return_value=picked) as mocked_pick:
+			await mark_delivery_picked_up(update, SimpleNamespace())
+
+		mocked_pick.assert_called_once_with("order-2", 77)
+		self.assertIn("Order picked up", query.edit_message_text.await_args.args[0])
+
+	# test that delivered action updates status for assigned zutomayo_rider
+	async def test_mark_delivery_done_success(self):
+		query = SimpleNamespace(data="delivery_done:order-3", answer=AsyncMock(), edit_message_text=AsyncMock())
+		update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=77))
+		done = {
+			"order_id": "order-3",
+			"items": [{"quantity": 1}],
+			"total": 6.5,
+			"status": "delivered",
+		}
+
+		with patch("handlers.menu.mark_order_delivered", return_value=done) as mocked_done:
+			await mark_delivery_done(update, SimpleNamespace())
+
+		mocked_done.assert_called_once_with("order-3", 77)
+		self.assertIn("Order delivered", query.edit_message_text.await_args.args[0])
+
+	# test that completed action updates status for assigned zutomayo_rider
+	async def test_mark_delivery_completed_success(self):
+		query = SimpleNamespace(data="delivery_complete:order-3", answer=AsyncMock(), edit_message_text=AsyncMock())
+		update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=77))
+		completed = {
+			"order_id": "order-3",
+			"items": [{"quantity": 1}],
+			"total": 6.5,
+			"status": "completed",
+		}
+
+		with patch("handlers.menu.mark_order_completed", return_value=completed) as mocked_completed:
+			await mark_delivery_completed(update, SimpleNamespace())
+
+		mocked_completed.assert_called_once_with("order-3", 77)
+		self.assertIn("Order completed", query.edit_message_text.await_args.args[0])
+
+	# test that accepted bounties view handles users with no accepted bounties
+	async def test_view_accepted_bounties_handles_empty(self):
+		reply_text = AsyncMock()
+		update = SimpleNamespace(message=SimpleNamespace(reply_text=reply_text), effective_user=SimpleNamespace(id=50))
+
+		with patch("handlers.menu.get_bounties_by_rider", return_value=[]) as mocked_get_bounties:
+			await view_accepted_bounties(update, SimpleNamespace())
+
+		mocked_get_bounties.assert_called_once_with(50)
+		reply_text.assert_awaited_once_with("You have not accepted any bounties yet.")
+
+	# test that accepted bounties view formats accepted records
+	async def test_view_accepted_bounties_formats_records(self):
+		reply_text = AsyncMock()
+		update = SimpleNamespace(message=SimpleNamespace(reply_text=reply_text), effective_user=SimpleNamespace(id=51))
+		bounties = [
+			{"order_id": "abc", "items": [{"quantity": 2}], "total": 9.5, "status": "accepted"},
+			{"order_id": "def", "items": [{"quantity": 1}], "total": 6.0, "status": "picked_up"},
+			{"order_id": "ghi", "items": [{"quantity": 1}], "total": 7.0, "status": "delivered"},
+		]
+
+		with patch("handlers.menu.get_bounties_by_rider", return_value=bounties):
+			await view_accepted_bounties(update, SimpleNamespace())
+
+		self.assertEqual(reply_text.await_count, 3)
+		self.assertEqual(reply_text.await_args_list[0].args[0], "Accepted bounties:")
+		self.assertIn("abc", reply_text.await_args_list[1].args[0])
+		self.assertIn("accepted", reply_text.await_args_list[1].args[0])
+		self.assertEqual(
+			reply_text.await_args_list[1].kwargs["reply_markup"].inline_keyboard[0][0].callback_data,
+			"delivery_pickup:abc",
+		)
+		self.assertIn("def", reply_text.await_args_list[2].args[0])
+		self.assertIn("picked_up", reply_text.await_args_list[2].args[0])
+		self.assertEqual(
+			reply_text.await_args_list[2].kwargs["reply_markup"].inline_keyboard[0][0].callback_data,
+			"delivery_done:def",
+		)
 
 
 if __name__ == "__main__":

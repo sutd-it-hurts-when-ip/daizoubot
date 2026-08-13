@@ -49,12 +49,12 @@ class BaseRepository(Generic[ModelType]):
         """
 
         # generate dict representation of model
-        document = obj.model_dump(by_alias=True, exclude_none=True)
+        document = obj.model_dump(by_alias=True, exclude_none=True);
 
         # remove existing _id if any to let MongoDB assign instead
-        document.pop("_id", None)
+        document.pop("_id", None);
 
-        return document
+        return document;
     
 
     def _to_model(self, document: Optional[dict[str, Any]]) -> Optional[ModelType]:
@@ -62,7 +62,7 @@ class BaseRepository(Generic[ModelType]):
         Helper to convert MongoDB document to model object.
         """
 
-        return self.model.model_validate(document) if document else None
+        return self.model.model_validate(document) if document else None;
     
 
     @staticmethod
@@ -71,7 +71,7 @@ class BaseRepository(Generic[ModelType]):
         Helper to convert input value to ObjectId object.
         """
 
-        return val if isinstance(val, ObjectId) else ObjectId(str(val))
+        return val if isinstance(val, ObjectId) else ObjectId(str(val));
 
     # endregion helpers
 
@@ -85,20 +85,18 @@ class BaseRepository(Generic[ModelType]):
         """
 
         # convert data model to document
-        document = self._to_document(obj)
+        document = self._to_document(obj);
 
         # insert document into collection
-        result = await self.collection.insert_one(document)
+        result = await self.collection.insert_one(document);
 
         # get created document by id
-        created = await self.get_by_id(result.inserted_id)
+        created = await self.get_by_id(result.inserted_id);
 
         # guard against document not found
-        if created is None:
-
-            raise RuntimeError("Failed to fetch document after insert.")
+        if created is None: raise RuntimeError("Failed to fetch document after insert.")
         
-        return created
+        return created;
     
 
     async def delete(self, document_id: Any) -> bool:
@@ -108,9 +106,9 @@ class BaseRepository(Generic[ModelType]):
         """
 
         # convert id to ObjectId object and delete from collection first document matching _id
-        result = await self.collection.delete_one({"_id": self._to_object_id(document_id)})
+        result = await self.collection.delete_one({"_id": self._to_object_id(document_id)});
 
-        return result.deleted_count > 0
+        return result.deleted_count > 0;
     
 
     async def get_by_id(self, document_id: Any) -> Optional[ModelType]:
@@ -120,9 +118,9 @@ class BaseRepository(Generic[ModelType]):
         """
 
         # convert id to ObjectId object and query collection for first document matching _id
-        document = await self.collection.find_one({"_id": self._to_object_id(document_id)})
+        document = await self.collection.find_one({"_id": self._to_object_id(document_id)});
 
-        return self._to_model(document)
+        return self._to_model(document);
     
 
     async def update(self, document_id: Any, changes: dict[str, Any]) -> Optional[ModelType]:
@@ -132,13 +130,11 @@ class BaseRepository(Generic[ModelType]):
         """
 
         # guard against overwriting MongoDB assigned id
-        changes = changes.copy()
-        changes.pop("_id", None)
+        changes = changes.copy();
+        changes.pop("_id", None);
 
         # guard against empty changes
-        if not changes:
-
-            return await self.get_by_id(document_id)
+        if not changes: return await self.get_by_id(document_id)
 
         # convert id to ObjectId object, filter collection for first document matching _id,
         # set changes, and return modified document
@@ -146,8 +142,8 @@ class BaseRepository(Generic[ModelType]):
             {"_id": self._to_object_id(document_id)},
             {"$set": changes},
             return_document=ReturnDocument.AFTER
-        )
+        );
 
-        return self._to_model(document)
+        return self._to_model(document);
 
     # endregion crud

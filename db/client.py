@@ -24,18 +24,18 @@ async def get_client() -> AsyncMongoClient:
     if _client is None:
 
         # establish client
-        _client = AsyncMongoClient(MONGO_URI)
+        _client = AsyncMongoClient(MONGO_URI);
     
         # check for connection failure
         try:
 
-            await _client.admin.command("ping")
+            await _client.admin.command("ping");
 
         except ConnectionFailure:
 
-            print("[!] MongoDB server unavailable.")
+            print("[!] MongoDB server unavailable.");
 
-    return _client
+    return _client;
 
 
 async def get_database() -> AsyncDatabase:
@@ -43,9 +43,9 @@ async def get_database() -> AsyncDatabase:
     Get access to MongoDB database through client instance.
     """
 
-    client = await get_client()
+    client = await get_client();
 
-    return client.get_database(MONGO_DB_NAME)
+    return client.get_database(MONGO_DB_NAME);
 
 
 async def close_client() -> None:
@@ -57,5 +57,5 @@ async def close_client() -> None:
     global _client
     if _client is not None:
 
-        await _client.close()
-        _client = None
+        await _client.close();
+        _client = None;
